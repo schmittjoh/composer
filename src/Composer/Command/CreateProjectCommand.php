@@ -64,6 +64,10 @@ controlled code by appending the <info>'--prefer-source'</info> flag. Also, it i
 advisable to install all dependencies required for development by appending the
 <info>'--dev'</info> flag.
 
+If you want to make sure that no third-party code gets executed automatically
+during the installation, make sure to pass both the '--no-custom-installers', and
+the '--no-scripts' option.
+
 To install a package from another repository repository than the default one you
 can pass the <info>'--repository-url=http://myrepository.org'</info> flag.
 
