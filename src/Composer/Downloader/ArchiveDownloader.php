@@ -50,12 +50,18 @@ abstract class ArchiveDownloader extends FileDownloader
                 // Rename the content directory to avoid error when moving up
                 // a child folder with the same name
                 $temporaryName = md5(time().rand());
-                rename($contentDir, $temporaryName);
+                exec('mv '.escapeshellarg($contentDir).' '.escapeshellarg($temporaryName), $output, $returnCode);
+                if (0 !== $returnCode) {
+                    throw new \RuntimeException(sprintf('Failed to rename "%s" to "%s".', $contentDir, $temporaryName));
+                }
                 $contentDir = $temporaryName;
 
                 foreach (array_merge(glob($contentDir . '/.*'), glob($contentDir . '/*')) as $file) {
                     if (trim(basename($file), '.')) {
-                        rename($file, $path . '/' . basename($file));
+                        exec('mv '.escapeshellarg($file).' '.escapeshellarg($path.'/'.basename($file)), $output, $returnCode);
+                        if (0 !== $returnCode) {
+                            throw new \RuntimeException(sprintf('Failed to rename "%s" to "%s".', $file, $path.'/'.basename($file)));
+                        }
                     }
                 }
                 rmdir($contentDir);
