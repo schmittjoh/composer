@@ -14,6 +14,7 @@ namespace Composer\Package\Version;
 
 use Composer\Package\BasePackage;
 use Composer\Package\PackageInterface;
+use Composer\Package\Link;
 use Composer\Package\LinkConstraint\MultiConstraint;
 use Composer\Package\LinkConstraint\VersionConstraint;
 
@@ -40,7 +41,7 @@ class VersionParser
             return 'dev';
         }
 
-        preg_match('{'.self::$modifierRegex.'$}', $version, $match);
+        preg_match('{'.self::$modifierRegex.'$}i', strtolower($version), $match);
         if (!empty($match[3])) {
             return 'dev';
         }
@@ -52,7 +53,7 @@ class VersionParser
             if ('alpha' === $match[1] || 'a' === $match[1]) {
                 return 'alpha';
             }
-            if ('RC' === $match[1]) {
+            if ('rc' === $match[1]) {
                 return 'RC';
             }
         }
@@ -73,7 +74,12 @@ class VersionParser
             return $package->getPrettyVersion();
         }
 
-        return $package->getPrettyVersion() . ' ' . ($truncate ? substr($package->getSourceReference(), 0, 6) : $package->getSourceReference());
+        // if source reference is a sha1 hash -- truncate
+        if ($truncate && strlen($package->getSourceReference()) === 40) {
+            return $package->getPrettyVersion() . ' ' . substr($package->getSourceReference(), 0, 7);
+        }
+
+        return $package->getPrettyVersion() . ' ' . $package->getSourceReference();
     }
 
     /**
@@ -97,7 +103,7 @@ class VersionParser
         }
 
         if ('dev-' === strtolower(substr($version, 0, 4))) {
-            return strtolower($version);
+            return 'dev-'.substr($version, 4);
         }
 
         // match classical versioning
@@ -135,7 +141,7 @@ class VersionParser
             } catch (\Exception $e) {}
         }
 
-        throw new \UnexpectedValueException('Invalid version string '.$version);
+        throw new \UnexpectedValueException('Invalid version string "'.$version.'"');
     }
 
     /**
@@ -162,6 +168,28 @@ class VersionParser
         }
 
         return 'dev-'.$name;
+    }
+
+    /**
+     * @param string $source source package name
+     * @param string $sourceVersion source package version (pretty version ideally)
+     * @param string $description link description (e.g. requires, replaces, ..)
+     * @param array $links array of package name => constraint mappings
+     * @return Link[]
+     */
+    public function parseLinks($source, $sourceVersion, $description, $links)
+    {
+        $res = array();
+        foreach ($links as $target => $constraint) {
+            if ('self.version' === $constraint) {
+                $parsedConstraint = $this->parseConstraints($sourceVersion);
+            } else {
+                $parsedConstraint = $this->parseConstraints($constraint);
+            }
+            $res[] = new Link($source, $target, $parsedConstraint, $description, $constraint);
+        }
+
+        return $res;
     }
 
     /**

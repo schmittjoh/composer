@@ -12,6 +12,7 @@
 
 namespace Composer\Command;
 
+use Composer\Config;
 use Composer\Factory;
 use Composer\Installer;
 use Composer\Installer\ProjectInstaller;
@@ -68,7 +69,7 @@ If you want to make sure that no third-party code gets executed automatically
 during the installation, make sure to pass both the '--no-custom-installers', and
 the '--no-scripts' option.
 
-To install a package from another repository repository than the default one you
+To install a package from another repository than the default one you
 can pass the <info>'--repository-url=http://myrepository.org'</info> flag.
 
 EOT
@@ -91,14 +92,15 @@ EOT
         );
     }
 
-    public function installProject(IOInterface $io, $packageName, $directory = null, $version = null, $preferSource = false, $installDevPackages = false, $repositoryUrl = null, $disableCustomInstallers = false, $noScripts = false)
+    public function installProject(IOInterface $io, $packageName, $directory = null, $packageVersion = null, $preferSource = false, $installDevPackages = false, $repositoryUrl = null, $disableCustomInstallers = false, $noScripts = false)
     {
-        $dm = $this->createDownloadManager($io);
+        $config = Factory::createConfig();
+
+        $dm = $this->createDownloadManager($io, $config);
         if ($preferSource) {
             $dm->setPreferSource(true);
         }
 
-        $config = Factory::createConfig();
         if (null === $repositoryUrl) {
             $sourceRepo = new CompositeRepository(Factory::createDefaultRepositories($io, $config));
         } elseif ("json" === pathinfo($repositoryUrl, PATHINFO_EXTENSION)) {
@@ -109,9 +111,29 @@ EOT
             throw new \InvalidArgumentException("Invalid repository url given. Has to be a .json file or an http url.");
         }
 
-        $candidates = $sourceRepo->findPackages($packageName, $version);
+        $candidates = array();
+        $name = strtolower($packageName);
+
+        if ($packageVersion === null) {
+            $sourceRepo->filterPackages(function ($package) use (&$candidates, $name) {
+                if ($package->getName() === $name) {
+                    $candidates[] = $package;
+                }
+            });
+        } else {
+            $parser = new VersionParser();
+            $version = $parser->normalize($packageVersion);
+            $sourceRepo->filterPackages(function ($package) use (&$candidates, $name, $version) {
+                if ($package->getName() === $name && $version === $package->getVersion()) {
+                    $candidates[] = $package;
+
+                    return false;
+                }
+            });
+        }
+
         if (!$candidates) {
-            throw new \InvalidArgumentException("Could not find package $packageName" . ($version ? " with version $version." : ''));
+            throw new \InvalidArgumentException("Could not find package $packageName" . ($packageVersion ? " with version $packageVersion." : ''));
         }
 
         if (null === $directory) {
@@ -126,6 +148,7 @@ EOT
                 $package = $candidate;
             }
         }
+        unset($candidates);
 
         $io->write('<info>Installing ' . $package->getName() . ' (' . VersionParser::formatVersion($package, false) . ')</info>', true);
 
@@ -148,6 +171,10 @@ EOT
 
         putenv('COMPOSER_ROOT_VERSION='.$package->getPrettyVersion());
 
+        // clean up memory
+        unset($dm, $config, $projectInstaller, $sourceRepo, $package);
+
+        // install dependencies of the created project
         $composer = Factory::create($io);
         $installer = Installer::create($io, $composer);
 
@@ -162,10 +189,10 @@ EOT
         $installer->run();
     }
 
-    protected function createDownloadManager(IOInterface $io)
+    protected function createDownloadManager(IOInterface $io, Config $config)
     {
         $factory = new Factory();
 
-        return $factory->createDownloadManager($io);
+        return $factory->createDownloadManager($io, $config);
     }
 }

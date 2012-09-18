@@ -14,6 +14,7 @@ namespace Composer\Downloader;
 
 use Composer\IO\IOInterface;
 use Composer\Package\PackageInterface;
+use Composer\Package\Version\VersionParser;
 use Composer\Util\Filesystem;
 use Composer\Util\RemoteFilesystem;
 
@@ -64,7 +65,7 @@ class FileDownloader implements DownloaderInterface
 
         $fileName = $this->getFileName($package, $path);
 
-        $this->io->write("  - Installing <info>" . $package->getName() . "</info> (<comment>" . $package->getPrettyVersion() . "</comment>)");
+        $this->io->write("  - Installing <info>" . $package->getName() . "</info> (<comment>" . VersionParser::formatVersion($package) . "</comment>)");
 
         $processUrl = $this->processUrl($url);
 
@@ -101,7 +102,7 @@ class FileDownloader implements DownloaderInterface
      */
     public function remove(PackageInterface $package, $path)
     {
-        $this->io->write("  - Removing <info>" . $package->getName() . "</info> (<comment>" . $package->getPrettyVersion() . "</comment>)");
+        $this->io->write("  - Removing <info>" . $package->getName() . "</info> (<comment>" . VersionParser::formatVersion($package) . "</comment>)");
         if (!$this->filesystem->removeDirectory($path)) {
             throw new \RuntimeException('Could not completely delete '.$path.', aborting.');
         }
@@ -116,7 +117,7 @@ class FileDownloader implements DownloaderInterface
      */
     protected function getFileName(PackageInterface $package, $path)
     {
-        return $path.'/'.pathinfo($package->getDistUrl(), PATHINFO_BASENAME);
+        return $path.'/'.pathinfo(parse_url($package->getDistUrl(), PHP_URL_PATH), PATHINFO_BASENAME);
     }
 
     /**

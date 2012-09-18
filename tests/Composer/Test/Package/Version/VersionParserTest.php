@@ -15,9 +15,57 @@ namespace Composer\Test\Package\Version;
 use Composer\Package\Version\VersionParser;
 use Composer\Package\LinkConstraint\MultiConstraint;
 use Composer\Package\LinkConstraint\VersionConstraint;
+use Composer\Package\PackageInterface;
 
 class VersionParserTest extends \PHPUnit_Framework_TestCase
 {
+    /**
+     * @dataProvider formattedVersions
+     */
+    public function testFormatVersionForDevPackage(PackageInterface $package, $truncate, $expected)
+    {
+        $this->assertSame($expected, VersionParser::formatVersion($package, $truncate));
+    }
+
+    public function formattedVersions()
+    {
+        $data = array(
+            array(
+                'sourceReference' => 'v2.1.0-RC2',
+                'truncate' => true,
+                'expected' => 'PrettyVersion v2.1.0-RC2'
+            ),
+            array(
+                'sourceReference' => 'bbf527a27356414bfa9bf520f018c5cb7af67c77',
+                'truncate' => true,
+                'expected' => 'PrettyVersion bbf527a'
+            ),
+            array(
+                'sourceReference' => 'v1.0.0',
+                'truncate' => false,
+                'expected' => 'PrettyVersion v1.0.0'
+            ),
+            array(
+                'sourceReference' => 'bbf527a27356414bfa9bf520f018c5cb7af67c77',
+                'truncate' => false,
+                'expected' => 'PrettyVersion bbf527a27356414bfa9bf520f018c5cb7af67c77'
+            ),
+        );
+
+        $self = $this;
+        $createPackage = function($arr) use ($self) {
+            $package = $self->getMock('\Composer\Package\PackageInterface');
+            $package->expects($self->once())->method('isDev')->will($self->returnValue(true));
+            $package->expects($self->once())->method('getSourceType')->will($self->returnValue('git'));
+            $package->expects($self->once())->method('getPrettyVersion')->will($self->returnValue('PrettyVersion'));
+            $package->expects($self->any())->method('getSourceReference')->will($self->returnValue($arr['sourceReference']));
+
+            return array($package, $arr['truncate'], $arr['expected']);
+        };
+
+        return array_map($createPackage, $data);
+    }
+
     /**
      * @dataProvider successfulNormalizedVersions
      */
@@ -53,7 +101,8 @@ class VersionParserTest extends \PHPUnit_Framework_TestCase
             'parses trunk'      => array('dev-trunk',           '9999999-dev'),
             'parses branches'   => array('1.x-dev',             '1.9999999.9999999.9999999-dev'),
             'parses arbitrary'  => array('dev-feature-foo',     'dev-feature-foo'),
-            'parses arbitrary2' => array('DEV-FOOBAR',          'dev-foobar'),
+            'parses arbitrary2' => array('DEV-FOOBAR',          'dev-FOOBAR'),
+            'parses arbitrary3' => array('dev-feature/foo',     'dev-feature/foo'),
             'ignores aliases'   => array('dev-master as 1.0.0', '9999999-dev'),
         );
     }
@@ -102,7 +151,7 @@ class VersionParserTest extends \PHPUnit_Framework_TestCase
             'parses master'         => array('master',      '9999999-dev'),
             'parses trunk'          => array('trunk',       '9999999-dev'),
             'parses arbitrary'      => array('feature-a',   'dev-feature-a'),
-            'parses arbitrary/2'    => array('foobar',      'dev-foobar'),
+            'parses arbitrary/2'    => array('FOOBAR',      'dev-FOOBAR'),
         );
     }
 
@@ -158,6 +207,7 @@ class VersionParserTest extends \PHPUnit_Framework_TestCase
             'accepts master/2'  => array('dev-master',      new VersionConstraint('=', '9999999-dev')),
             'accepts arbitrary' => array('dev-feature-a',   new VersionConstraint('=', 'dev-feature-a')),
             'regression #550'   => array('dev-some-fix',    new VersionConstraint('=', 'dev-some-fix')),
+            'regression #935'   => array('dev-CAPS',        new VersionConstraint('=', 'dev-CAPS')),
             'ignores aliases'   => array('dev-master as 1.0.0', new VersionConstraint('=', '9999999-dev')),
         );
     }
@@ -238,9 +288,10 @@ class VersionParserTest extends \PHPUnit_Framework_TestCase
             array('stable', '3.1.2-patch'),
             array('alpha',  '3.1.2-alpha5'),
             array('beta',   '3.1.2-beta'),
-            array('beta',   '2.0b1'),
+            array('beta',   '2.0B1'),
             array('alpha',  '1.2.0a1'),
             array('alpha',  '1.2_a1'),
+            array('RC',     '2.0.0rc1')
         );
     }
 }

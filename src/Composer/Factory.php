@@ -20,7 +20,7 @@ use Composer\Util\ProcessExecutor;
 use Composer\Util\RemoteFilesystem;
 
 /**
- * Creates an configured instance of composer.
+ * Creates a configured instance of composer.
  *
  * @author Ryan Weaver <ryan@knplabs.com>
  * @author Jordi Boggiano <j.boggiano@seld.be>
@@ -155,7 +155,7 @@ class Factory
         $package = $loader->load($localConfig);
 
         // initialize download manager
-        $dm = $this->createDownloadManager($io);
+        $dm = $this->createDownloadManager($io, $config);
 
         // initialize installation manager
         $im = $this->createInstallationManager($config);
@@ -219,12 +219,12 @@ class Factory
      * @param  IO\IOInterface             $io
      * @return Downloader\DownloadManager
      */
-    public function createDownloadManager(IOInterface $io)
+    public function createDownloadManager(IOInterface $io, Config $config)
     {
         $dm = new Downloader\DownloadManager();
-        $dm->setDownloader('git', new Downloader\GitDownloader($io));
-        $dm->setDownloader('svn', new Downloader\SvnDownloader($io));
-        $dm->setDownloader('hg', new Downloader\HgDownloader($io));
+        $dm->setDownloader('git', new Downloader\GitDownloader($io, $config));
+        $dm->setDownloader('svn', new Downloader\SvnDownloader($io, $config));
+        $dm->setDownloader('hg', new Downloader\HgDownloader($io, $config));
         $dm->setDownloader('zip', new Downloader\ZipDownloader($io));
         $dm->setDownloader('tar', new Downloader\TarDownloader($io));
         $dm->setDownloader('phar', new Downloader\PharDownloader($io));

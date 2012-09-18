@@ -175,6 +175,12 @@ class LibraryInstaller implements InstallerInterface
             return;
         }
         foreach ($binaries as $bin) {
+            $binPath = $this->getInstallPath($package).'/'.$bin;
+            if (!file_exists($binPath)) {
+                $this->io->write('    <warning>Skipped installation of '.$bin.' for package '.$package->getName().': file not found in package</warning>');
+                continue;
+            }
+
             $this->initializeBinDir();
             $link = $this->binDir.'/'.basename($bin);
             if (file_exists($link)) {
@@ -184,29 +190,27 @@ class LibraryInstaller implements InstallerInterface
                     // is a fresh install of the vendor.
                     chmod($link, 0777 & ~umask());
                 }
-                $this->io->write('Skipped installation of '.$bin.' for package '.$package->getName().', name conflicts with an existing file');
+                $this->io->write('    Skipped installation of '.$bin.' for package '.$package->getName().': name conflicts with an existing file');
                 continue;
             }
-            $bin = $this->getInstallPath($package).'/'.$bin;
-
             if (defined('PHP_WINDOWS_VERSION_BUILD')) {
                 // add unixy support for cygwin and similar environments
-                if ('.bat' !== substr($bin, -4)) {
-                    file_put_contents($link, $this->generateUnixyProxyCode($bin, $link));
+                if ('.bat' !== substr($binPath, -4)) {
+                    file_put_contents($link, $this->generateUnixyProxyCode($binPath, $link));
                     chmod($link, 0777 & ~umask());
                     $link .= '.bat';
                 }
-                file_put_contents($link, $this->generateWindowsProxyCode($bin, $link));
+                file_put_contents($link, $this->generateWindowsProxyCode($binPath, $link));
             } else {
                 $cwd = getcwd();
                 try {
                     // under linux symlinks are not always supported for example
                     // when using it in smbfs mounted folder
-                    $relativeBin = $this->filesystem->findShortestPath($link, $bin);
+                    $relativeBin = $this->filesystem->findShortestPath($link, $binPath);
                     chdir(dirname($link));
                     symlink($relativeBin, $link);
                 } catch (\ErrorException $e) {
-                    file_put_contents($link, $this->generateUnixyProxyCode($bin, $link));
+                    file_put_contents($link, $this->generateUnixyProxyCode($binPath, $link));
                 }
                 chdir($cwd);
             }
@@ -222,10 +226,12 @@ class LibraryInstaller implements InstallerInterface
         }
         foreach ($binaries as $bin) {
             $link = $this->binDir.'/'.basename($bin);
-            if (!file_exists($link)) {
-                continue;
+            if (file_exists($link)) {
+                unlink($link);
             }
-            unlink($link);
+            if (file_exists($link.'.bat')) {
+                unlink($link.'.bat');
+            }
         }
     }
 
@@ -241,10 +247,10 @@ class LibraryInstaller implements InstallerInterface
         $this->binDir = realpath($this->binDir);
     }
 
-    private function generateWindowsProxyCode($bin, $link)
+    protected function generateWindowsProxyCode($bin, $link)
     {
         $binPath = $this->filesystem->findShortestPath($link, $bin);
-        if ('.bat' === substr($bin, -4)) {
+        if ('.bat' === substr($bin, -4) || '.exe' === substr($bin, -4)) {
             $caller = 'call';
         } else {
             $handle = fopen($bin, 'r');
@@ -266,7 +272,7 @@ class LibraryInstaller implements InstallerInterface
             $caller." \"%BIN_TARGET%\" %*\r\n";
     }
 
-    private function generateUnixyProxyCode($bin, $link)
+    protected function generateUnixyProxyCode($bin, $link)
     {
         $binPath = $this->filesystem->findShortestPath($link, $bin);
 

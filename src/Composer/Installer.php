@@ -29,6 +29,7 @@ use Composer\Package\Link;
 use Composer\Package\LinkConstraint\VersionConstraint;
 use Composer\Package\Locker;
 use Composer\Package\PackageInterface;
+use Composer\Package\RootPackageInterface;
 use Composer\Repository\CompositeRepository;
 use Composer\Repository\InstalledArrayRepository;
 use Composer\Repository\PlatformRepository;
@@ -55,7 +56,7 @@ class Installer
     protected $config;
 
     /**
-     * @var PackageInterface
+     * @var RootPackageInterface
      */
     protected $package;
 
@@ -112,7 +113,7 @@ class Installer
      *
      * @param IOInterface         $io
      * @param Config              $config
-     * @param PackageInterface    $package
+     * @param RootPackageInterface    $package
      * @param DownloadManager     $downloadManager
      * @param RepositoryManager   $repositoryManager
      * @param Locker              $locker
@@ -120,7 +121,7 @@ class Installer
      * @param EventDispatcher     $eventDispatcher
      * @param AutoloadGenerator   $autoloadGenerator
      */
-    public function __construct(IOInterface $io, Config $config, PackageInterface $package, DownloadManager $downloadManager, RepositoryManager $repositoryManager, Locker $locker, InstallationManager $installationManager, EventDispatcher $eventDispatcher, AutoloadGenerator $autoloadGenerator)
+    public function __construct(IOInterface $io, Config $config, RootPackageInterface $package, DownloadManager $downloadManager, RepositoryManager $repositoryManager, Locker $locker, InstallationManager $installationManager, EventDispatcher $eventDispatcher, AutoloadGenerator $autoloadGenerator)
     {
         $this->io = $io;
         $this->config = $config;
@@ -166,7 +167,8 @@ class Installer
             $installedRepo->addRepository($this->additionalInstalledRepository);
         }
 
-        $aliases = $this->aliasPackages($platformRepo);
+        $aliases = $this->getRootAliases();
+        $this->aliasPlatformPackages($platformRepo, $aliases);
 
         if ($this->runScripts) {
             // dispatch pre event
@@ -186,7 +188,12 @@ class Installer
 
         // output suggestions
         foreach ($this->suggestedPackages as $suggestion) {
-            if (!$installedRepo->findPackages($suggestion['target'])) {
+            $target = $suggestion['target'];
+            if ($installedRepo->filterPackages(function (PackageInterface $package) use ($target) {
+                if (in_array($target, $package->getNames())) {
+                    return false;
+                }
+            })) {
                 $this->io->write($suggestion['source'].' suggests installing '.$suggestion['target'].' ('.$suggestion['reason'].')');
             }
         }
@@ -227,8 +234,10 @@ class Installer
         $stabilityFlags = $this->package->getStabilityFlags();
 
         // initialize locker to create aliased packages
+        $installFromLock = false;
         if (!$this->update && $this->locker->isLocked($devMode)) {
-            $lockedPackages = $this->locker->getLockedPackages($devMode);
+            $installFromLock = true;
+            $lockedRepository = $this->locker->getLockedRepository($devMode);
             $minimumStability = $this->locker->getMinimumStability();
             $stabilityFlags = $this->locker->getStabilityFlags();
         }
@@ -240,15 +249,23 @@ class Installer
             $this->package->getDevRequires()
         );
 
+        $this->io->write('<info>Loading composer repositories with package information</info>');
+
         // creating repository pool
         $pool = new Pool($minimumStability, $stabilityFlags);
-        $pool->addRepository($installedRepo);
-        foreach ($this->repositoryManager->getRepositories() as $repository) {
-            $pool->addRepository($repository);
+        $pool->addRepository($installedRepo, $aliases);
+        if ($installFromLock) {
+            $pool->addRepository($lockedRepository, $aliases);
+        }
+
+        if (!$installFromLock || !$this->locker->isCompleteFormat($devMode)) {
+            $repositories = $this->repositoryManager->getRepositories();
+            foreach ($repositories as $repository) {
+                $pool->addRepository($repository, $aliases);
+            }
         }
 
         // creating requirements request
-        $installFromLock = false;
         $request = new Request($pool);
 
         $constraint = new VersionConstraint('=', $this->package->getVersion());
@@ -264,21 +281,17 @@ class Installer
             foreach ($links as $link) {
                 $request->install($link->getTarget(), $link->getConstraint());
             }
-        } elseif ($this->locker->isLocked($devMode)) {
-            $installFromLock = true;
+        } elseif ($installFromLock) {
             $this->io->write('<info>Installing '.($devMode ? 'dev ': '').'dependencies from lock file</info>');
 
             if (!$this->locker->isFresh() && !$devMode) {
                 $this->io->write('<warning>Your lock file is out of sync with your composer.json, run "composer.phar update" to update dependencies</warning>');
             }
 
-            foreach ($lockedPackages as $package) {
+            foreach ($lockedRepository->getPackages() as $package) {
                 $version = $package->getVersion();
-                foreach ($aliases as $alias) {
-                    if ($alias['package'] === $package->getName() && $alias['version'] === $package->getVersion()) {
-                        $version = $alias['alias_normalized'];
-                        break;
-                    }
+                if (isset($aliases[$package->getName()][$version])) {
+                    $version = $aliases[$package->getName()][$version]['alias_normalized'];
                 }
                 $constraint = new VersionConstraint('=', $version);
                 $request->install($package->getName(), $constraint);
@@ -309,7 +322,7 @@ class Installer
         // to the version specified in the lock, or their currently installed version
         if ($this->update && $this->updateWhitelist) {
             if ($this->locker->isLocked($devMode)) {
-                $currentPackages = $this->locker->getLockedPackages($devMode);
+                $currentPackages = $this->locker->getLockedRepository($devMode)->getPackages();
             } else {
                 $currentPackages = $installedRepo->getPackages();
             }
@@ -359,6 +372,10 @@ class Installer
                 continue;
             }
 
+            if ($package instanceof AliasPackage) {
+                continue;
+            }
+
             // skip packages that will be updated/uninstalled
             foreach ($operations as $operation) {
                 if (('update' === $operation->getJobType() && $operation->getInitialPackage()->equals($package))
@@ -370,17 +387,19 @@ class Installer
 
             // force update to locked version if it does not match the installed version
             if ($installFromLock) {
-                $lockData = $this->locker->getLockData();
                 unset($lockedReference);
-                foreach ($lockData['packages'] as $lockedPackage) {
-                    if (!empty($lockedPackage['source-reference']) && strtolower($lockedPackage['package']) === $package->getName()) {
-                        $lockedReference = $lockedPackage['source-reference'];
+                foreach ($lockedRepository->findPackages($package->getName()) as $lockedPackage) {
+                    if (
+                        $lockedPackage->isDev()
+                        && $lockedPackage->getSourceReference()
+                        && $lockedPackage->getSourceReference() !== $package->getSourceReference()
+                    ) {
+                        $newPackage = clone $package;
+                        $newPackage->setSourceReference($lockedPackage->getSourceReference());
+                        $operations[] = new UpdateOperation($package, $newPackage);
+
                         break;
                     }
-                }
-                if (isset($lockedReference) && $lockedReference !== $package->getSourceReference()) {
-                    // changing the source ref to update to will be handled in the operations loop below
-                    $operations[] = new UpdateOperation($package, clone $package);
                 }
             } else {
                 // force update to latest on update
@@ -390,7 +409,23 @@ class Installer
                         continue;
                     }
 
-                    $newPackage = $this->repositoryManager->findPackage($package->getName(), $package->getVersion());
+                    $newPackage = null;
+                    $matches = $pool->whatProvides($package->getName(), new VersionConstraint('=', $package->getVersion()));
+                    foreach ($matches as $match) {
+                        // skip local packages
+                        if (!in_array($match->getRepository(), $repositories, true)) {
+                            continue;
+                        }
+
+                        // skip providers/replacers
+                        if ($match->getName() !== $package->getName()) {
+                            continue;
+                        }
+
+                        $newPackage = $match;
+                        break;
+                    }
+
                     if ($newPackage && $newPackage->getSourceReference() !== $package->getSourceReference()) {
                         $operations[] = new UpdateOperation($package, $newPackage);
                     }
@@ -428,29 +463,8 @@ class Installer
                 $this->eventDispatcher->dispatchPackageEvent(constant($event), $operation);
             }
 
-            // if installing from lock, restore dev packages' references to their locked state
-            if ($installFromLock) {
-                $package = null;
-                if ('update' === $operation->getJobType()) {
-                    $package = $operation->getTargetPackage();
-                } elseif ('install' === $operation->getJobType()) {
-                    $package = $operation->getPackage();
-                }
-                if ($package && $package->isDev()) {
-                    $lockData = $this->locker->getLockData();
-                    foreach ($lockData['packages'] as $lockedPackage) {
-                        if (!empty($lockedPackage['source-reference']) && strtolower($lockedPackage['package']) === $package->getName()) {
-                            // update commit date to allow recovery in case the commit disappeared
-                            if (!empty($lockedPackage['commit-date'])) {
-                                $package->setReleaseDate(new \DateTime('@'.$lockedPackage['commit-date']));
-                            }
-                            $package->setSourceReference($lockedPackage['source-reference']);
-                            break;
-                        }
-                    }
-                }
-            } else {
-                // not installing from lock, force dev packages' references if they're in root package refs
+            // not installing from lock, force dev packages' references if they're in root package refs
+            if (!$installFromLock) {
                 $package = null;
                 if ('update' === $operation->getJobType()) {
                     $package = $operation->getTargetPackage();
@@ -465,8 +479,9 @@ class Installer
                 }
             }
 
-            if ($this->verbose) {
-                $this->io->write((string) $operation);
+            // output alias operations in verbose mode, or all ops in dry run
+            if ($this->dryRun || ($this->verbose && false !== strpos($operation->getJobType(), 'Alias'))) {
+                $this->io->write('  - ' . $operation);
             }
 
             $this->installationManager->execute($localRepo, $operation);
@@ -484,7 +499,7 @@ class Installer
         return true;
     }
 
-    private function aliasPackages(PlatformRepository $platformRepo)
+    private function getRootAliases()
     {
         if (!$this->update && $this->locker->isLocked()) {
             $aliases = $this->locker->getAliases();
@@ -492,20 +507,32 @@ class Installer
             $aliases = $this->package->getAliases();
         }
 
+        $normalizedAliases = array();
+
         foreach ($aliases as $alias) {
-            $packages = array_merge(
-                $platformRepo->findPackages($alias['package'], $alias['version']),
-                $this->repositoryManager->findPackages($alias['package'], $alias['version'])
+            $normalizedAliases[$alias['package']][$alias['version']] = array(
+                'alias' => $alias['alias'],
+                'alias_normalized' => $alias['alias_normalized']
             );
-            foreach ($packages as $package) {
-                $package->setAlias($alias['alias_normalized']);
-                $package->setPrettyAlias($alias['alias']);
-                $package->getRepository()->addPackage($aliasPackage = new AliasPackage($package, $alias['alias_normalized'], $alias['alias']));
-                $aliasPackage->setRootPackageAlias(true);
-            }
         }
 
-        return $aliases;
+        return $normalizedAliases;
+    }
+
+    private function aliasPlatformPackages(PlatformRepository $platformRepo, $aliases)
+    {
+        foreach ($aliases as $package => $versions) {
+            foreach ($versions as $version => $alias) {
+                $packages = $platformRepo->findPackages($package, $version);
+                foreach ($packages as $package) {
+                    $package->setAlias($alias['alias_normalized']);
+                    $package->setPrettyAlias($alias['alias']);
+                    $aliasPackage = new AliasPackage($package, $alias['alias_normalized'], $alias['alias']);
+                    $aliasPackage->setRootPackageAlias(true);
+                    $platformRepo->addPackage($aliasPackage);
+                }
+            }
+        }
     }
 
     private function isUpdateable(PackageInterface $package)

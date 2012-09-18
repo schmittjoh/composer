@@ -168,7 +168,7 @@ class GitDriver extends VcsDriver
             $this->process->execute('git branch --no-color --no-abbrev -v', $output, $this->repoDir);
             foreach ($this->process->splitLines($output) as $branch) {
                 if ($branch && !preg_match('{^ *[^/]+/HEAD }', $branch)) {
-                    if (preg_match('{^(?:\* )? *(?:[^/ ]+?/)?(\S+) *([a-f0-9]+) .*$}', $branch, $match)) {
+                    if (preg_match('{^(?:\* )? *(\S+) *([a-f0-9]+) .*$}', $branch, $match)) {
                        $branches[$match[1]] = $match[2];
                     }
                 }
@@ -185,12 +185,16 @@ class GitDriver extends VcsDriver
      */
     public static function supports(IOInterface $io, $url, $deep = false)
     {
-        if (preg_match('#(^git://|\.git$|git@|//git\.|//github.com/)#i', $url)) {
+        if (preg_match('#(^git://|\.git$|git(?:olite)?@|//git\.|//github.com/)#i', $url)) {
             return true;
         }
 
         // local filesystem
         if (static::isLocalUrl($url)) {
+            if (!is_dir($url)) {
+                throw new \RuntimeException('Directory does not exist: '.$url);
+            }
+
             $process = new ProcessExecutor();
             $url = str_replace('file://', '', $url);
             // check whether there is a git repo in that path

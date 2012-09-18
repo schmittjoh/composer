@@ -5,7 +5,7 @@ Composer is a package manager tracking local dependencies of your projects and l
 
 See [http://getcomposer.org/](http://getcomposer.org/) for more information and documentation.
 
-[![Build Status](https://secure.travis-ci.org/composer/composer.png)](http://travis-ci.org/composer/composer)
+[![Build Status](https://secure.travis-ci.org/composer/composer.png?branch=master)](http://travis-ci.org/composer/composer)
 
 Installation / Usage
 --------------------
@@ -97,7 +97,7 @@ for users and [#composer-dev](irc://irc.freenode.org/composer-dev) for developme
 Requirements
 ------------
 
-PHP 5.3+
+PHP 5.3.2 or above (at least 5.3.4 recommended to avoid potential bugs)
 
 Authors
 -------
@@ -115,4 +115,7 @@ Composer is licensed under the MIT License - see the LICENSE file for details
 Acknowledgments
 ---------------
 
-This project's Solver started out as a PHP port of openSUSE's [Libzypp satsolver](http://en.opensuse.org/openSUSE:Libzypp_satsolver).
+- This project's Solver started out as a PHP port of openSUSE's
+  [Libzypp satsolver](http://en.opensuse.org/openSUSE:Libzypp_satsolver).
+- This project uses hiddeninput.exe to prompt for passwords on windows, sources
+  and details can be found on the [github page of the project](https://github.com/Seldaek/hidden-input).

@@ -68,7 +68,7 @@ The only required field is `packages`. The JSON structure is as follows:
 
     {
         "packages": {
-            "vendor/packageName": {
+            "vendor/package-name": {
                 "dev-master": { @composer.json },
                 "1.0.x-dev": { @composer.json },
                 "0.0.1": { @composer.json },
@@ -161,7 +161,8 @@ project to use the patched version. If the library is on GitHub (this is the
 case most of the time), you can simply fork it there and push your changes to
 your fork. After that you update the project's `composer.json`. All you have
 to do is add your fork as a repository and update the version constraint to
-point to your custom branch.
+point to your custom branch. For version constraint naming conventions see
+[Libraries](02-libraries.md) for more information.
 
 Example assuming you patched monolog to fix a bug in the `bugfix` branch:
 
@@ -228,21 +229,32 @@ In this case the short name of the channel is `pear2`, so the
 > package, so this may considerably slow down the installation process.
 
 #### Custom channel alias
+
 It is possible to alias all pear channel packages with custom name.
 
 Example:
-You own private pear repository and going to use composer abilities to bring dependencies from vcs or transit to composer repository scheme.
-Your repository list of packages:
+
+You own private pear repository and going to use composer abilities to bring
+dependencies from vcs or transit to composer repository scheme. Your
+repository list of packages:
+
  * BasePackage, requires nothing
  * IntermediatePackage, depends on BasePackage
- * TopLevelPackage1 and TopLevelPackage2 both dependth on IntermediatePackage.
+ * TopLevelPackage1 and TopLevelPackage2 both depend on IntermediatePackage.
 
 For composer it looks like:
+
  * "pear-pear.foobar.repo/IntermediatePackage" depends on "pear-pear.foobar.repo/BasePackage",
  * "pear-pear.foobar.repo/TopLevelPackage1" depends on "pear-pear.foobar.repo/IntermediatePackage",
  * "pear-pear.foobar.repo/TopLevelPackage2" depends on "pear-pear.foobar.repo/IntermediatePackage"
 
-When you update one of your packages to composer naming scheme or made it available through vcs, your older dependencies would not see new version, cause it would be named like "foobar/IntermediatePackage". Specifying 'vendor-alias' for pear repository, you will get all its packages aliased with composer-like names. Following example would take BasePackage, TopLevelPackage1 and TopLevelPackage2 packages from pear repository and IntermediatePackage from github repository:
+When you update one of your packages to composer naming scheme or made it
+available through vcs, your older dependencies would not see new version,
+cause it would be named like "foobar/IntermediatePackage". Specifying 'vendor-
+alias' for pear repository, you will get all its packages aliased with
+composer-like names. Following example would take BasePackage,
+TopLevelPackage1 and TopLevelPackage2 packages from pear repository and
+IntermediatePackage from github repository:
 
     {
         "repositories": [

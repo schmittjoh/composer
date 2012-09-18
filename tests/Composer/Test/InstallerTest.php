@@ -17,7 +17,7 @@ use Composer\Config;
 use Composer\Json\JsonFile;
 use Composer\Repository\ArrayRepository;
 use Composer\Repository\RepositoryManager;
-use Composer\Package\PackageInterface;
+use Composer\Package\RootPackageInterface;
 use Composer\Package\Link;
 use Composer\Package\Locker;
 use Composer\Test\Mock\FactoryMock;
@@ -32,7 +32,7 @@ class InstallerTest extends TestCase
     /**
      * @dataProvider provideInstaller
      */
-    public function testInstaller(PackageInterface $rootPackage, $repositories, array $options)
+    public function testInstaller(RootPackageInterface $rootPackage, $repositories, array $options)
     {
         $io = $this->getMock('Composer\IO\IOInterface');
 
@@ -80,7 +80,7 @@ class InstallerTest extends TestCase
         // when A requires B and B requires A, and A is a non-published root package
         // the install of B should succeed
 
-        $a = $this->getPackage('A', '1.0.0');
+        $a = $this->getPackage('A', '1.0.0', 'Composer\Package\RootPackage');
         $a->setRequires(array(
             new Link('A', 'B', $this->getVersionConstraint('=', '1.0.0')),
         ));
@@ -100,7 +100,7 @@ class InstallerTest extends TestCase
         // #480: when A requires B and B requires A, and A is a published root package
         // only B should be installed, as A is the root
 
-        $a = $this->getPackage('A', '1.0.0');
+        $a = $this->getPackage('A', '1.0.0', 'Composer\Package\RootPackage');
         $a->setRequires(array(
             new Link('A', 'B', $this->getVersionConstraint('=', '1.0.0')),
         ));
@@ -123,7 +123,7 @@ class InstallerTest extends TestCase
     /**
      * @dataProvider getIntegrationTests
      */
-    public function testIntegration($file, $message, $condition, $composerConfig, $lock, $installed, $installedDev, $run, $expectLock, $expect)
+    public function testIntegration($file, $message, $condition, $composerConfig, $lock, $installed, $installedDev, $run, $expectLock, $expectOutput, $expect)
     {
         if ($condition) {
             eval('$res = '.$condition.';');
@@ -197,7 +197,7 @@ class InstallerTest extends TestCase
         $application->get('install')->setCode(function ($input, $output) use ($installer) {
             $installer->setDevMode($input->getOption('dev'));
 
-            return $installer->run();
+            return $installer->run() ? 0 : 1;
         });
 
         $application->get('update')->setCode(function ($input, $output) use ($installer) {
@@ -206,7 +206,7 @@ class InstallerTest extends TestCase
                 ->setUpdate(true)
                 ->setUpdateWhitelist($input->getArgument('packages'));
 
-            return $installer->run();
+            return $installer->run() ? 0 : 1;
         });
 
         if (!preg_match('{^(install|update)\b}', $run)) {
@@ -226,6 +226,10 @@ class InstallerTest extends TestCase
 
         $installationManager = $composer->getInstallationManager();
         $this->assertSame($expect, implode("\n", $installationManager->getTrace()));
+
+        if ($expectOutput) {
+            $this->assertEquals($expectOutput, $output);
+        }
     }
 
     public function getIntegrationTests()
@@ -247,9 +251,10 @@ class InstallerTest extends TestCase
                 --COMPOSER--\s*(?P<composer>'.$content.')\s*
                 (?:--LOCK--\s*(?P<lock>'.$content.'))?\s*
                 (?:--INSTALLED--\s*(?P<installed>'.$content.'))?\s*
-                (?:--INSTALLED:DEV--\s*(?P<installedDev>'.$content.'))?\s*
+                (?:--INSTALLED-DEV--\s*(?P<installedDev>'.$content.'))?\s*
                 --RUN--\s*(?P<run>.*?)\s*
                 (?:--EXPECT-LOCK--\s*(?P<expectLock>'.$content.'))?\s*
+                (?:--EXPECT-OUTPUT--\s*(?P<expectOutput>'.$content.'))?\s*
                 --EXPECT--\s*(?P<expect>.*?)\s*
             $}xs';
 
@@ -279,6 +284,7 @@ class InstallerTest extends TestCase
                     if (!empty($match['expectLock'])) {
                         $expectLock = JsonFile::parseJson($match['expectLock']);
                     }
+                    $expectOutput = $match['expectOutput'];
                     $expect = $match['expect'];
                 } catch (\Exception $e) {
                     die(sprintf('Test "%s" is not valid: '.$e->getMessage(), str_replace($fixturesDir.'/', '', $file)));
@@ -287,7 +293,7 @@ class InstallerTest extends TestCase
                 die(sprintf('Test "%s" is not valid, did not match the expected format.', str_replace($fixturesDir.'/', '', $file)));
             }
 
-            $tests[] = array(str_replace($fixturesDir.'/', '', $file), $message, $condition, $composer, $lock, $installed, $installedDev, $run, $expectLock, $expect);
+            $tests[] = array(str_replace($fixturesDir.'/', '', $file), $message, $condition, $composer, $lock, $installed, $installedDev, $run, $expectLock, $expectOutput, $expect);
         }
 
         return $tests;

@@ -53,7 +53,7 @@ Required for published packages (libraries).
 The version of the package.
 
 This must follow the format of `X.Y.Z` with an optional suffix of `-dev`,
-`alphaN`, `-betaN` or `-RCN`.
+`-alphaN`, `-betaN` or `-RCN`.
 
 Examples:
 
@@ -62,6 +62,7 @@ Examples:
     1.1.0
     0.2.5
     1.0.0-dev
+    1.0.0-alpha3
     1.0.0-beta2
     1.0.0-RC5
 
@@ -140,8 +141,8 @@ The recommended notation for the most common licenses is (alphabetical):
     GPL-2.0+
     GPL-3.0
     GPL-3.0+
-    LGPL-2.0
-    LGPL-2.0+
+    LGPL-2.1
+    LGPL-2.1+
     LGPL-3.0
     LGPL-3.0+
     MIT
@@ -163,7 +164,7 @@ An Example for disjunctive licenses:
 
     {
         "license": [
-           "LGPL-2.0",
+           "LGPL-2.1",
            "GPL-3.0+"
         ]
     }
@@ -171,7 +172,7 @@ An Example for disjunctive licenses:
 Alternatively they can be separated with "or" and enclosed in parenthesis;
 
     {
-        "license": "(LGPL-2.0 or GPL-3.0+)"
+        "license": "(LGPL-2.1 or GPL-3.0+)"
     }
 
 Similarly when multiple licenses need to be applied ("conjunctive license"),
@@ -486,7 +487,8 @@ your project dependencies. Specific changes to the stability requirements of
 a given package can be done in `require` or `require-dev` (see
 [package links](#package-links)).
 
-Available options are `dev`, `alpha`, `beta`, `RC`, and `stable`.
+Available options (in order of stability) are `dev`, `alpha`, `beta`, `RC`,
+and `stable`.
 
 ### repositories <span>(root-only)</span>
 
@@ -567,6 +569,9 @@ The following options are supported:
 * **process-timeout:** Defaults to `300`. The duration processes like git clones
   can run before Composer assumes they died out. You may need to make this
   higher if you have a slow connection or huge vendors.
+* **github-protocols:** Defaults to `["git", "https", "http"]`. A list of
+  protocols to use for github.com clones, in priority order. Use this if you are
+  behind a proxy or have somehow bad performances with the git protocol.
 * **notify-on-install:** Defaults to `true`. Composer allows repositories to
   define a notification URL, so that they get notified whenever a package from
   that repository is installed. This option allows you to disable that behaviour.

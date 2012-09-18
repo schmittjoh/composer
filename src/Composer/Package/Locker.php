@@ -17,6 +17,9 @@ use Composer\Installer\InstallationManager;
 use Composer\Repository\RepositoryManager;
 use Composer\Util\ProcessExecutor;
 use Composer\Package\AliasPackage;
+use Composer\Repository\ArrayRepository;
+use Composer\Package\Dumper\ArrayDumper;
+use Composer\Package\Loader\ArrayLoader;
 
 /**
  * Reads/writes project lockfile (composer.lock).
@@ -30,6 +33,8 @@ class Locker
     private $repositoryManager;
     private $installationManager;
     private $hash;
+    private $loader;
+    private $dumper;
     private $lockDataCache;
 
     /**
@@ -46,6 +51,8 @@ class Locker
         $this->repositoryManager = $repositoryManager;
         $this->installationManager = $installationManager;
         $this->hash = $hash;
+        $this->loader = new ArrayLoader();
+        $this->dumper = new ArrayDumper();
     }
 
     /**
@@ -81,19 +88,50 @@ class Locker
     }
 
     /**
+     * Checks whether the lock file is in the new complete format or not
+     *
+     * @param  bool $dev true to check in dev mode
+     * @return bool
+     */
+    public function isCompleteFormat($dev)
+    {
+        $lockData = $this->getLockData();
+        $lockedPackages = $dev ? $lockData['packages-dev'] : $lockData['packages'];
+
+        if (empty($lockedPackages) || isset($lockedPackages[0]['name'])) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Searches and returns an array of locked packages, retrieved from registered repositories.
      *
      * @param  bool  $dev true to retrieve the locked dev packages
-     * @return array
+     * @return \Composer\Repository\RepositoryInterface
      */
-    public function getLockedPackages($dev = false)
+    public function getLockedRepository($dev = false)
     {
         $lockData = $this->getLockData();
-        $packages = array();
+        $packages = new ArrayRepository();
 
         $lockedPackages = $dev ? $lockData['packages-dev'] : $lockData['packages'];
-        $repo = $dev ? $this->repositoryManager->getLocalDevRepository() : $this->repositoryManager->getLocalRepository();
 
+        if (empty($lockedPackages)) {
+            return $packages;
+        }
+
+        if (isset($lockedPackages[0]['name'])) {
+            foreach ($lockedPackages as $info) {
+                $packages->addPackage($this->loader->load($info));
+            }
+
+            return $packages;
+        }
+
+        // legacy lock file support
+        $repo = $dev ? $this->repositoryManager->getLocalDevRepository() : $this->repositoryManager->getLocalRepository();
         foreach ($lockedPackages as $info) {
             $resolvedVersion = !empty($info['alias-version']) ? $info['alias-version'] : $info['version'];
 
@@ -109,9 +147,8 @@ class Locker
             if (!$package && !empty($info['alias-version'])) {
                 $package = $this->repositoryManager->findPackage($info['package'], $info['version']);
                 if ($package) {
-                    $alias = new AliasPackage($package, $info['alias-version'], $info['alias-pretty-version']);
-                    $package->getRepository()->addPackage($alias);
-                    $package = $alias;
+                    $package->setAlias($info['alias-version']);
+                    $package->setPrettyAlias($info['alias-pretty-version']);
                 }
             }
 
@@ -122,7 +159,15 @@ class Locker
                 ));
             }
 
-            $packages[] = $package;
+            $package = clone $package;
+            if (!empty($info['time'])) {
+                $package->setReleaseDate($info['time']);
+            }
+            if (!empty($info['source-reference'])) {
+                $package->setSourceReference($info['source-reference']);
+            }
+
+            $packages->addPackage($package);
         }
 
         return $packages;
@@ -177,14 +222,33 @@ class Locker
             'hash' => $this->hash,
             'packages' => null,
             'packages-dev' => null,
-            'aliases' => $aliases,
+            'aliases' => array(),
             'minimum-stability' => $minimumStability,
             'stability-flags' => $stabilityFlags,
         );
 
+        foreach ($aliases as $package => $versions) {
+            foreach ($versions as $version => $alias) {
+                $lock['aliases'][] = array(
+                    'alias' => $alias['alias'],
+                    'alias_normalized' => $alias['alias_normalized'],
+                    'version' => $version,
+                    'package' => $package,
+                );
+            }
+        }
+
         $lock['packages'] = $this->lockPackages($packages);
         if (null !== $devPackages) {
             $lock['packages-dev'] = $this->lockPackages($devPackages);
+        }
+
+        if (empty($lock['packages']) && empty($lock['packages-dev'])) {
+            if ($this->lockFile->exists()) {
+                unlink($this->lockFile->getPath());
+            }
+
+            return false;
         }
 
         if (!$this->isLocked() || $lock !== $this->getLockData()) {
@@ -202,11 +266,8 @@ class Locker
         $locked = array();
 
         foreach ($packages as $package) {
-            $alias = null;
-
             if ($package instanceof AliasPackage) {
-                $alias = $package;
-                $package = $package->getAliasOf();
+                continue;
             }
 
             $name    = $package->getPrettyName();
@@ -218,38 +279,30 @@ class Locker
                 ));
             }
 
-            $spec = array('package' => $name, 'version' => $version);
+            $spec = $this->dumper->dump($package);
+            unset($spec['version_normalized']);
 
-            if ($package->isDev() && !$alias) {
-                $spec['source-reference'] = $package->getSourceReference();
+            if ($package->isDev()) {
                 if ('git' === $package->getSourceType() && $path = $this->installationManager->getInstallPath($package)) {
                     $process = new ProcessExecutor();
                     if (0 === $process->execute('git log -n1 --pretty=%ct '.escapeshellarg($package->getSourceReference()), $output, $path)) {
-                        $spec['commit-date'] = trim($output);
+                        $spec['time'] = trim($output);
                     }
                 }
-            }
-
-            if ($alias) {
-                $spec['alias-pretty-version'] = $alias->getPrettyVersion();
-                $spec['alias-version'] = $alias->getVersion();
             }
 
             $locked[] = $spec;
         }
 
         usort($locked, function ($a, $b) {
-            $comparison = strcmp($a['package'], $b['package']);
+            $comparison = strcmp($a['name'], $b['name']);
 
             if (0 !== $comparison) {
                 return $comparison;
             }
 
             // If it is the same package, compare the versions to make the order deterministic
-            $aVersion = isset($a['alias-version']) ? $a['alias-version'] : $a['version'];
-            $bVersion = isset($b['alias-version']) ? $b['alias-version'] : $b['version'];
-
-            return strcmp($aVersion, $bVersion);
+            return strcmp($a['version'], $b['version']);
         });
 
         return $locked;

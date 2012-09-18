@@ -20,14 +20,14 @@ use Composer\Config;
 
 class LibraryInstallerTest extends TestCase
 {
-    private $composer;
-    private $config;
-    private $vendorDir;
-    private $binDir;
-    private $dm;
-    private $repository;
-    private $io;
-    private $fs;
+    protected $composer;
+    protected $config;
+    protected $vendorDir;
+    protected $binDir;
+    protected $dm;
+    protected $repository;
+    protected $io;
+    protected $fs;
 
     protected function setUp()
     {
@@ -233,9 +233,9 @@ class LibraryInstallerTest extends TestCase
         $this->assertEquals($this->vendorDir.'/'.$package->getPrettyName().'/Some/Namespace', $library->getInstallPath($package));
     }
 
-    private function createPackageMock()
+    protected function createPackageMock()
     {
-        return $this->getMockBuilder('Composer\Package\MemoryPackage')
+        return $this->getMockBuilder('Composer\Package\Package')
             ->setConstructorArgs(array(md5(rand()), '1.0.0.0', '1.0.0'))
             ->getMock();
     }

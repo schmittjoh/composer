@@ -127,7 +127,7 @@ class GitHubDriver extends VcsDriver
 
         if (!isset($this->infoCache[$identifier])) {
             try {
-                $resource = 'https://raw.github.com/'.$this->owner.'/'.$this->repository.'/'.$identifier.'/composer.json';
+                $resource = 'https://raw.github.com/'.$this->owner.'/'.$this->repository.'/'.urlencode($identifier).'/composer.json';
                 $composer = $this->getContents($resource);
             } catch (TransportException $e) {
                 if (404 !== $e->getCode()) {
@@ -141,7 +141,7 @@ class GitHubDriver extends VcsDriver
                 $composer = JsonFile::parseJson($composer, $resource);
 
                 if (!isset($composer['time'])) {
-                    $resource = 'https://api.github.com/repos/'.$this->owner.'/'.$this->repository.'/commits/'.$identifier;
+                    $resource = 'https://api.github.com/repos/'.$this->owner.'/'.$this->repository.'/commits/'.urlencode($identifier);
                     $commit = JsonFile::parseJson($this->getContents($resource), $resource);
                     $composer['time'] = $commit['commit']['committer']['date'];
                 }

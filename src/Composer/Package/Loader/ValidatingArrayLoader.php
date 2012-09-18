@@ -36,7 +36,7 @@ class ValidatingArrayLoader implements LoaderInterface
         $this->versionParser = $parser;
     }
 
-    public function load(array $config)
+    public function load(array $config, $class = 'Composer\Package\CompletePackage')
     {
         $this->config = $config;
 
@@ -81,6 +81,11 @@ class ValidatingArrayLoader implements LoaderInterface
         $this->validateArray('authors');
         if (!empty($this->config['authors'])) {
             foreach ($this->config['authors'] as $key => $author) {
+                if (!is_array($author)) {
+                    $this->errors[] = 'authors.'.$key.' : should be an array, '.gettype($author).' given';
+                    unset($this->config['authors'][$key]);
+                    continue;
+                }
                 if (isset($author['homepage']) && !$this->filterUrl($author['homepage'])) {
                     $this->errors[] = 'authors.'.$key.'.homepage : invalid value, must be a valid http/https URL';
                     unset($this->config['authors'][$key]['homepage']);
@@ -96,6 +101,9 @@ class ValidatingArrayLoader implements LoaderInterface
                 if (isset($author['role']) && !is_string($author['role'])) {
                     $this->errors[] = 'authors.'.$key.'.role : invalid value, must be a string';
                     unset($this->config['authors'][$key]['role']);
+                }
+                if (empty($this->config['authors'][$key])) {
+                    unset($this->config['authors'][$key]);
                 }
             }
             if (empty($this->config['authors'])) {
@@ -168,7 +176,7 @@ class ValidatingArrayLoader implements LoaderInterface
             throw new \Exception(implode("\n", $this->errors));
         }
 
-        $package = $this->loader->load($this->config);
+        $package = $this->loader->load($this->config, $class);
         $this->errors = array();
         $this->config = null;
 
